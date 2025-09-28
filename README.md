@@ -16,7 +16,7 @@ git clone <repository-url>
 cd WeaveAI
 
 # 2. Install dependencies
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 
 # 4. Run the application
 python3 main.py
@@ -171,7 +171,7 @@ python3 main.py
 3. **Auto-Enrichment Sources**: Uses OpenAI-generated content instead of real external trusted sources (Wikipedia, arXiv, etc.)
 4. **Response Delivery**: Text-only responses without audio streaming capabilities
 
-### Technology Stack
+## Technology Stack
 
 - **Backend**: FastAPI, Python 3.8+
 - **Vector Database**: ChromaDB with persistent storage
