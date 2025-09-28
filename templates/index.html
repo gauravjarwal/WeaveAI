@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WeaveAI - Knowledge Base Search & Enrichment</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div x-data="weaveAI()" class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">
+                <i class="fas fa-brain text-blue-600"></i> WeaveAI
+            </h1>
+            <p class="text-gray-600">AI-Powered Knowledge Base Search & Enrichment</p>
+        </div>
+
+        <!-- Stats Bar -->
+        <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm text-gray-600">
+                        <i class="fas fa-database text-blue-500"></i>
+                        <span x-text="documents.length || 0"></span> documents, 
+                        <span x-text="stats.total_chunks || 0"></span> chunks in knowledge base
+                    </div>
+                    <button @click="loadStats(); loadDocuments()" class="text-blue-600 hover:text-blue-800">
+                        <i class="fas fa-refresh"></i> Refresh
+                    </button>
+                    <button @click="showDocuments = !showDocuments" class="text-blue-600 hover:text-blue-800">
+                        <i :class="showDocuments ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"></i>
+                        <span x-text="showDocuments ? 'Hide' : 'Show'"></span> Documents
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Expandable Documents List -->
+            <div x-show="showDocuments" x-transition class="mt-4 border-t pt-4">
+                <h3 class="text-lg font-medium text-gray-800 mb-3">
+                    <i class="fas fa-folder-open text-blue-600"></i> Uploaded Documents
+                </h3>
+                
+                <div x-show="documents.length === 0" class="text-gray-500 text-center py-4">
+                    No documents uploaded yet
+                </div>
+                
+                <div class="space-y-2">
+                    <template x-for="doc in documents" :key="doc.document_id">
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div class="flex items-center space-x-3">
+                                <i class="fas fa-file-alt text-gray-600"></i>
+                                <div>
+                                    <div class="font-medium text-gray-800" x-text="doc.filename"></div>
+                                    <div class="text-sm text-gray-500" x-text="`${doc.total_chunks} chunks`"></div>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded" x-text="`ID: ${doc.document_id.substring(0, 8)}...`"></span>
+                                <button @click="deleteDocument(doc.document_id, doc.filename)" 
+                                        class="text-red-600 hover:text-red-800 p-1">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">
+                <i class="fas fa-upload text-green-600"></i> Upload Documents
+            </h2>
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <input type="file" 
+                       multiple 
+                       accept=".pdf,.docx,.txt,.md"
+                       @change="handleFileSelect"
+                       class="hidden" 
+                       id="fileInput">
+                <label for="fileInput" class="cursor-pointer">
+                    <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-4"></i>
+                    <p class="text-gray-600 mb-2">Click to select files or drag and drop</p>
+                    <p class="text-sm text-gray-500">Supports PDF, DOCX, TXT, MD files (max 50MB each)</p>
+                </label>
+            </div>
+            
+            <!-- Upload Progress -->
+            <div x-show="uploading" class="mt-4">
+                <div class="bg-blue-100 rounded-lg p-4">
+                    <div class="flex items-center">
+                        <i class="fas fa-spinner fa-spin text-blue-600 mr-2"></i>
+                        <span class="text-blue-800">Processing documents...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Results -->
+            <div x-show="uploadResults.length > 0" class="mt-4 space-y-2">
+                <template x-for="result in uploadResults">
+                    <div class="flex items-center justify-between p-3 rounded-lg"
+                         :class="result.status === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'">
+                        <div class="flex items-center">
+                            <i :class="result.status === 'success' ? 'fas fa-check-circle text-green-600' : 'fas fa-exclamation-circle text-red-600'" class="mr-2"></i>
+                            <span x-text="result.filename"></span>
+                        </div>
+                        <span x-text="result.status === 'success' ? `${result.total_chunks} chunks` : result.error" class="text-sm"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Search Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">
+                <i class="fas fa-search text-blue-600"></i> Ask a Question
+            </h2>
+            <div class="flex space-x-4">
+                <input type="text" 
+                       x-model="query" 
+                       @keyup.enter="search()"
+                       placeholder="Ask anything about your documents..."
+                       class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <button @click="search()" 
+                        :disabled="!query.trim() || searching"
+                        class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i :class="searching ? 'fas fa-spinner fa-spin' : 'fas fa-search'" class="mr-2"></i>
+                    <span x-text="searching ? 'Searching...' : 'Search'"></span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Answer Section -->
+        <div x-show="answer" class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold">
+                    <i class="fas fa-lightbulb text-yellow-600"></i> Answer
+                </h2>
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm text-gray-600">Confidence:</span>
+                    <div class="flex items-center">
+                        <div class="w-20 bg-gray-200 rounded-full h-2 mr-2">
+                            <div class="bg-blue-600 h-2 rounded-full" :style="`width: ${(confidence * 100)}%`"></div>
+                        </div>
+                        <span class="text-sm font-medium" x-text="`${Math.round(confidence * 100)}%`"></span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="prose max-w-none mb-4">
+                <p x-text="answer" class="text-gray-800 leading-relaxed"></p>
+            </div>
+
+            <!-- Missing Information -->
+            <div x-show="missingInfo.length > 0" class="mb-4">
+                <h3 class="text-lg font-medium text-orange-800 mb-2">
+                    <i class="fas fa-exclamation-triangle text-orange-600"></i> Missing Information
+                </h3>
+                <ul class="list-disc list-inside space-y-1">
+                    <template x-for="info in missingInfo">
+                        <li class="text-orange-700" x-text="info"></li>
+                    </template>
+                </ul>
+            </div>
+
+            <!-- Enrichment Suggestions -->
+            <div x-show="enrichmentSuggestions.length > 0" class="mb-4">
+                <h3 class="text-lg font-medium text-blue-800 mb-2">
+                    <i class="fas fa-plus-circle text-blue-600"></i> Enrichment Suggestions
+                </h3>
+                <ul class="list-disc list-inside space-y-1">
+                    <template x-for="suggestion in enrichmentSuggestions">
+                        <li class="text-blue-700" x-text="suggestion"></li>
+                    </template>
+                </ul>
+                
+                <!-- Auto-Enrichment Button -->
+                <div x-show="missingInfo.length > 0" class="mt-3">
+                    <button @click="autoEnrich()" 
+                            :disabled="autoEnriching"
+                            class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i :class="autoEnriching ? 'fas fa-spinner fa-spin' : 'fas fa-magic'" class="mr-2"></i>
+                        <span x-text="autoEnriching ? 'Auto-Enriching...' : 'Auto-Enrich Knowledge Base'"></span>
+                    </button>
+                    <p class="text-sm text-gray-600 mt-1">Automatically fetch missing information from trusted external sources</p>
+                </div>
+            </div>
+
+            <!-- Sources -->
+            <div x-show="sources.length > 0" class="mb-4">
+                <h3 class="text-lg font-medium text-gray-800 mb-2">
+                    <i class="fas fa-file-alt text-gray-600"></i> Sources
+                </h3>
+                <div class="space-y-2">
+                    <template x-for="source in sources">
+                        <div class="flex items-center justify-between p-2 bg-gray-50 rounded">
+                            <span class="text-sm text-gray-700" x-text="source.filename"></span>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs text-gray-500" x-text="`Chunk ${source.chunk_index + 1}/${source.total_chunks}`"></span>
+                                <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded" x-text="`${Math.round(source.relevance_score * 100)}% relevant`"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Feedback Section -->
+            <div class="border-t pt-4">
+                <h3 class="text-lg font-medium text-gray-800 mb-2">Rate this answer</h3>
+                <div class="flex items-center space-x-4 mb-3">
+                    <template x-for="i in [1,2,3,4,5]">
+                        <button @click="rating = i" 
+                                class="text-2xl"
+                                :class="i <= rating ? 'text-yellow-400' : 'text-gray-300'">
+                            <i class="fas fa-star"></i>
+                        </button>
+                    </template>
+                </div>
+                <div class="flex space-x-2">
+                    <input type="text" 
+                           x-model="feedback" 
+                           placeholder="Optional feedback..."
+                           class="flex-1 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <button @click="submitFeedback()" 
+                            :disabled="rating === 0"
+                            class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">
+                        Submit
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expandable Feedback Section - Bottom of Page -->
+    <div x-data="weaveAI()" class="container mx-auto px-4 py-8">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex items-center justify-between">
+                <h2 class="text-xl font-bold text-gray-800">
+                    <i class="fas fa-comments text-purple-600"></i> User Feedback
+                    <span x-text="`(${feedbacks.length})`" class="text-sm text-gray-500"></span>
+                </h2>
+                <div class="flex items-center space-x-2">
+                    <button @click="loadFeedbacks()" class="text-purple-600 hover:text-purple-800">
+                        <i class="fas fa-refresh"></i> Refresh
+                    </button>
+                    <button @click="showFeedbacks = !showFeedbacks" class="text-purple-600 hover:text-purple-800">
+                        <i :class="showFeedbacks ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"></i>
+                        <span x-text="showFeedbacks ? 'Hide' : 'Show'"></span> Feedbacks
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Expandable Feedback List -->
+            <div x-show="showFeedbacks" x-transition class="mt-4 border-t pt-4">
+                <h3 class="text-lg font-medium text-gray-800 mb-3">
+                    <i class="fas fa-star text-purple-600"></i> All User Feedbacks
+                </h3>
+                
+                <div x-show="feedbacks.length === 0" class="text-gray-500 text-center py-4">
+                    No feedback submitted yet
+                </div>
+                
+                <div class="space-y-3">
+                    <template x-for="feedback in feedbacks" :key="feedback.timestamp">
+                        <div class="p-4 bg-gray-50 rounded-lg border-l-4 border-purple-500">
+                            <div class="flex items-start justify-between">
+                                <div class="flex-1">
+                                    <div class="flex items-center space-x-2 mb-2">
+                                        <div class="flex items-center">
+                                            <template x-for="i in 5" :key="i">
+                                                <i :class="i <= feedback.rating ? 'fas fa-star text-yellow-500' : 'far fa-star text-gray-300'" class="text-sm"></i>
+                                            </template>
+                                        </div>
+                                        <span class="text-sm font-medium text-gray-700" x-text="`${feedback.rating}/5`"></span>
+                                        <span class="text-xs text-gray-500" x-text="feedback.formatted_timestamp"></span>
+                                    </div>
+                                    
+                                    <div class="mb-2">
+                                        <div class="text-sm font-medium text-gray-700 mb-1">Query:</div>
+                                        <div class="text-sm text-gray-600 bg-blue-50 p-2 rounded" x-text="feedback.short_query"></div>
+                                    </div>
+                                    
+                                    <div class="mb-2">
+                                        <div class="text-sm font-medium text-gray-700 mb-1">Answer:</div>
+                                        <div class="text-sm text-gray-600 bg-green-50 p-2 rounded" x-text="feedback.short_answer"></div>
+                                    </div>
+                                    
+                                    <div x-show="feedback.feedback && feedback.feedback.trim() !== ''" class="mt-2">
+                                        <div class="text-sm font-medium text-gray-700 mb-1">User Comment:</div>
+                                        <div class="text-sm text-purple-700 bg-purple-50 p-2 rounded italic" x-text="feedback.feedback"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Simple Overlay Modals -->
+    <!-- Alert Modal -->
+    <div id="alertModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="display: none;">
+        <div class="bg-white rounded-lg shadow-lg max-w-md w-full mx-4 p-6">
+            <div class="flex items-center mb-4">
+                <div id="alertIcon" class="w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-blue-100 text-blue-600">
+                    <i class="fas fa-info"></i>
+                </div>
+                <h3 id="alertTitle" class="text-lg font-semibold text-gray-900">Alert</h3>
+            </div>
+            <p id="alertMessage" class="text-gray-600 mb-6"></p>
+            <div class="flex justify-end">
+                <button onclick="closeAlert()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="confirmModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="display: none;">
+        <div class="bg-white rounded-lg shadow-lg max-w-md w-full mx-4 p-6">
+            <div class="flex items-center mb-4">
+                <div class="w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-blue-100 text-blue-600">
+                    <i class="fas fa-question"></i>
+                </div>
+                <h3 id="confirmTitle" class="text-lg font-semibold text-gray-900">Confirm</h3>
+            </div>
+            <p id="confirmMessage" class="text-gray-600 mb-6"></p>
+            <div class="flex justify-end space-x-3">
+                <button onclick="confirmResponse(false)" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
+                    Cancel
+                </button>
+                <button onclick="confirmResponse(true)" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <span id="confirmButtonText">Confirm</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success with Action Modal -->
+    <div id="successActionModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="display: none;">
+        <div class="bg-white rounded-lg shadow-lg max-w-md w-full mx-4 p-6">
+            <div class="flex items-center mb-4">
+                <div class="w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-green-100 text-green-600">
+                    <i class="fas fa-check"></i>
+                </div>
+                <h3 id="successActionTitle" class="text-lg font-semibold text-gray-900">Success</h3>
+            </div>
+            <p id="successActionMessage" class="text-gray-600 mb-4"></p>
+            <p id="successActionQuestion" class="text-gray-700 font-medium mb-6"></p>
+            <div class="flex justify-end space-x-3">
+                <button onclick="successActionResponse(false)" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400">
+                    No
+                </button>
+                <button onclick="successActionResponse(true)" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Yes
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simple Modal Functions (outside Alpine.js)
+        let confirmCallback = null;
+
+        function showAlert(message, title = 'Alert', type = 'info') {
+            document.getElementById('alertTitle').textContent = title;
+            document.getElementById('alertMessage').textContent = message;
+            
+            const icon = document.getElementById('alertIcon');
+            if (type === 'success') {
+                icon.className = 'w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-green-100 text-green-600';
+                icon.innerHTML = '<i class="fas fa-check"></i>';
+            } else if (type === 'error') {
+                icon.className = 'w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-red-100 text-red-600';
+                icon.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+            } else {
+                icon.className = 'w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-blue-100 text-blue-600';
+                icon.innerHTML = '<i class="fas fa-info"></i>';
+            }
+            
+            document.getElementById('alertModal').style.display = 'flex';
+        }
+
+        function closeAlert() {
+            document.getElementById('alertModal').style.display = 'none';
+        }
+
+        function showConfirm(message, callback, title = 'Confirm', buttonText = 'Confirm') {
+            document.getElementById('confirmTitle').textContent = title;
+            document.getElementById('confirmMessage').textContent = message;
+            document.getElementById('confirmButtonText').textContent = buttonText;
+            confirmCallback = callback;
+            document.getElementById('confirmModal').style.display = 'flex';
+        }
+
+        function confirmResponse(confirmed) {
+            document.getElementById('confirmModal').style.display = 'none';
+            if (confirmCallback) {
+                confirmCallback(confirmed);
+                confirmCallback = null;
+            }
+        }
+
+        function showSuccessAction(message, question, title = 'Success', yesCallback, noCallback) {
+            document.getElementById('successActionTitle').textContent = title;
+            document.getElementById('successActionMessage').textContent = message;
+            document.getElementById('successActionQuestion').textContent = question;
+            document.getElementById('successActionModal').style.display = 'flex';
+
+            const yesButton = document.querySelector('#successActionModal .bg-blue-600');
+            const noButton = document.querySelector('#successActionModal .bg-gray-300');
+
+            yesButton.onclick = () => {
+                document.getElementById('successActionModal').style.display = 'none';
+                if (yesCallback) yesCallback();
+            };
+            noButton.onclick = () => {
+                document.getElementById('successActionModal').style.display = 'none';
+                if (noCallback) noCallback();
+            };
+        }
+
+        function successActionResponse(confirmed) {
+            document.getElementById('successActionModal').style.display = 'none';
+            if (confirmCallback) {
+                confirmCallback(confirmed);
+                confirmCallback = null;
+            }
+        }
+
+        // Override browser alert and confirm
+        window.alert = showAlert;
+        window.confirm = function(message) {
+            return new Promise((resolve) => {
+                showConfirm(message, resolve);
+            });
+        };
+
+        function weaveAI() {
+            return {
+                // State
+                query: '',
+                searching: false,
+                uploading: false,
+                uploadResults: [],
+                answer: '',
+                confidence: 0,
+                missingInfo: [],
+                enrichmentSuggestions: [],
+                sources: [],
+                stats: {},
+                documents: [],
+                showDocuments: false,
+                autoEnriching: false,
+                rating: 0,
+                feedback: '',
+                lastQuery: '', // Added to store the last query for auto-enrichment
+                feedbacks: [],
+                showFeedbacks: false,
+
+                // Initialize
+                init() {
+                    console.log('WeaveAI initialized');
+                    // Ensure all modals are hidden on init
+                    // Removed custom modal states
+                    
+                    this.loadStats();
+                    this.loadDocuments();
+                    this.loadFeedbacks();
+                },
+
+                // Load statistics
+                async loadStats() {
+                    try {
+                        const response = await fetch('/stats');
+                        this.stats = await response.json();
+                    } catch (error) {
+                        console.error('Error loading stats:', error);
+                    }
+                },
+
+                // Load documents list
+                async loadDocuments() {
+                    try {
+                        const response = await fetch('/documents');
+                        const result = await response.json();
+                        this.documents = result.documents || [];
+                    } catch (error) {
+                        console.error('Error loading documents:', error);
+                        this.documents = [];
+                    }
+                },
+
+                // Load feedbacks list
+                async loadFeedbacks() {
+                    try {
+                        const response = await fetch('/feedbacks');
+                        const result = await response.json();
+                        if (result.status === 'success') {
+                            this.feedbacks = result.feedbacks || [];
+                        } else {
+                            this.feedbacks = [];
+                        }
+                    } catch (error) {
+                        console.error('Error loading feedbacks:', error);
+                        this.feedbacks = [];
+                    }
+                },
+
+                // Handle file selection
+                async handleFileSelect(event) {
+                    const files = Array.from(event.target.files);
+                    if (files.length === 0) return;
+
+                    this.uploading = true;
+                    this.uploadResults = [];
+
+                    const formData = new FormData();
+                    files.forEach(file => formData.append('files', file));
+
+                    try {
+                        const response = await fetch('/upload', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const result = await response.json();
+                        this.uploadResults = result.results;
+                        this.loadStats(); // Refresh stats
+                        this.loadDocuments(); // Refresh documents list
+                    } catch (error) {
+                        console.error('Upload error:', error);
+                        this.uploadResults = [{
+                            filename: 'Error',
+                            status: 'error',
+                            error: 'Upload failed'
+                        }];
+                    } finally {
+                        this.uploading = false;
+                        event.target.value = ''; // Reset file input
+                    }
+                },
+
+                // Search function
+                async search() {
+                    if (!this.query.trim()) return;
+
+                    this.searching = true;
+                    this.answer = '';
+                    this.rating = 0;
+                    this.feedback = '';
+                    this.lastQuery = this.query; // Store the query for auto-enrichment
+
+                    try {
+                        const response = await fetch('/search', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ query: this.query })
+                        });
+
+                        const result = await response.json();
+                        
+                        this.answer = result.answer;
+                        this.confidence = result.confidence;
+                        this.missingInfo = result.missing_info || [];
+                        this.enrichmentSuggestions = result.enrichment_suggestions || [];
+                        this.sources = result.sources || [];
+                        
+                    } catch (error) {
+                        console.error('Search error:', error);
+                        this.answer = 'Sorry, there was an error processing your query.';
+                        this.confidence = 0;
+                    } finally {
+                        this.searching = false;
+                    }
+                },
+
+                // Submit feedback
+                async submitFeedback() {
+                    if (this.rating === 0) return;
+
+                    try {
+                        await fetch('/feedback', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                query: this.query,
+                                answer: this.answer,
+                                rating: this.rating,
+                                feedback: this.feedback
+                            })
+                        });
+
+                        // Show success message
+                        showAlert('Thank you for your feedback!', 'Success', 'success');
+                        this.rating = 0;
+                        this.feedback = '';
+                        this.loadFeedbacks(); // Refresh feedbacks list
+                        
+                    } catch (error) {
+                        console.error('Feedback error:', error);
+                        showAlert('Error submitting feedback', 'Error', 'error');
+                    }
+                },
+
+                // Delete document
+                async deleteDocument(documentId, filename) {
+                    const confirmed = await confirm(`Are you sure you want to delete "${filename}"? This action cannot be undone.`);
+                    if (!confirmed) return;
+
+                    try {
+                        const response = await fetch(`/documents/${documentId}`, {
+                            method: 'DELETE'
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.status === 'success') {
+                            showAlert(`Document "${filename}" deleted successfully!`, 'Success', 'success');
+                            this.loadStats();
+                            this.loadDocuments();
+                        } else {
+                            showAlert(`Error deleting document: ${result.error}`, 'Error', 'error');
+                        }
+                        
+                    } catch (error) {
+                        console.error('Delete error:', error);
+                        showAlert('Error deleting document', 'Error', 'error');
+                    }
+                },
+
+                // Auto-enrich knowledge base
+                async autoEnrich() {
+                    if (this.missingInfo.length === 0 || !this.lastQuery) return;
+
+                    this.autoEnriching = true;
+
+                    try {
+                        const response = await fetch('/auto-enrich', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                user_query: this.lastQuery
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.status === 'success') {
+                            const successMessage = `Successfully enriched knowledge base with ${result.filename}`;
+                            const question = 'Would you like to re-run your search with the enriched knowledge base?';
+                            
+                            showSuccessAction(successMessage, question, 'Auto-Enrichment Complete', () => {
+                                this.loadStats();
+                                this.loadDocuments();
+                                this.search();
+                            }, () => {
+                                this.loadStats();
+                                this.loadDocuments();
+                            });
+                        } else {
+                            showAlert(`Auto-enrichment failed: ${result.error || 'Unknown error'}`, 'Auto-Enrichment Failed', 'error');
+                        }
+                        
+                    } catch (error) {
+                        console.error('Auto-enrichment error:', error);
+                        showAlert('Error during auto-enrichment. Please try again.', 'Auto-Enrichment Error', 'error');
+                    } finally {
+                        this.autoEnriching = false;
+                    }
+                },
+
+                // Removed custom modal methods
+            }
+        }
+    </script>
+</body>
+</html> 
